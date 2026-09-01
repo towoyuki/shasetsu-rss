@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import logging
 from datetime import datetime, timezone
 import requests
@@ -65,7 +66,9 @@ def parse_asahi():
             full_url = href if href.startswith("http") else "https://www.asahi.com" + href
             if not any(item["link"] == full_url for item in items):
                 cleaned_title = re.sub(r"^（社説）\s*", "", title)
+                cleaned_title = cleaned_title.split("･･･[続きを読む]")[0].strip()
                 body_text, img_url = fetch_article_detail(full_url)
+
                 items.append({
                     "title": f"[朝日] {cleaned_title}",
                     "link": full_url,
@@ -112,26 +115,56 @@ def parse_mainichi():
     if not soup:
         return items
 
+    # JSON-LDから社説構造を精密抽出
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "{}")
+            has_part = data.get("hasPart", [])
+            for article in has_part:
+                if article.get("@type") == "NewsArticle":
+                    full_url = article.get("url")
+                    title = article.get("headline", "").replace(" - 毎日新聞", "")
+                    cleaned_title = re.sub(r"^社説：?\s*", "", title)
+                    if full_url and cleaned_title and not any(item["link"] == full_url for item in items):
+                        body_text = article.get("description", "")
+                        img_url = None
+                        img_data = article.get("image")
+                        if isinstance(img_data, dict):
+                            img_url = img_data.get("url")
+                        elif isinstance(img_data, str):
+                            img_url = img_data
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        title = a.get_text(strip=True)
-        if "/articles/" in href and len(title) > 8:
-            full_url = href if href.startswith("http") else "https://mainichi.jp" + href
-            if not full_url.startswith("https://mainichi.jp/articles/"):
-                continue
-            if not any(item["link"] == full_url for item in items):
-                cleaned_title = re.sub(r"^社説：\s*", "", title)
-                body_text, img_url = fetch_article_detail(full_url)
-                items.append({
-                    "title": f"[毎日] {cleaned_title}",
-                    "link": full_url,
-                    "description": body_text or cleaned_title,
-                    "image": img_url,
-                    "pub_date": datetime.now(timezone.utc)
-                })
-                if len(items) >= 2:
-                    break
+                        items.append({
+                            "title": f"[毎日] {cleaned_title}",
+                            "link": full_url,
+                            "description": body_text or cleaned_title,
+                            "image": img_url,
+                            "pub_date": datetime.now(timezone.utc)
+                        })
+                        if len(items) >= 2:
+                            break
+        except Exception as e:
+            logging.warning(f"Error parsing Mainichi JSON-LD: {e}")
+
+    # JSON-LDで取得できない場合の精密HTMLフォールバック
+    if not items:
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            title = a.get_text(strip=True)
+            if "/articles/" in href and ("ddm/005/070" in href or "社説" in title) and len(title) > 8:
+                full_url = href if href.startswith("http") else "https://mainichi.jp" + href
+                if not any(item["link"] == full_url for item in items):
+                    cleaned_title = re.sub(r"^社説：?\s*", "", title)
+                    body_text, img_url = fetch_article_detail(full_url)
+                    items.append({
+                        "title": f"[毎日] {cleaned_title}",
+                        "link": full_url,
+                        "description": body_text or cleaned_title,
+                        "image": img_url,
+                        "pub_date": datetime.now(timezone.utc)
+                    })
+                    if len(items) >= 2:
+                        break
     return items
 
 def parse_nikkei():
@@ -186,6 +219,7 @@ def main():
         except Exception as e:
             logging.warning(f"Failed to parse existing RSS file: {e}")
 
+    # 新規取得項目を上にして重複を排除
     combined_items = []
     seen_links = set()
 
