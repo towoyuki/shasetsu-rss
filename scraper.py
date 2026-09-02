@@ -7,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
 from feedparser import parse as parse_feed
+from dateutil.parser import parse as parse_date
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -68,7 +69,6 @@ def parse_asahi():
                 cleaned_title = re.sub(r"^（社説）\s*", "", title)
                 cleaned_title = cleaned_title.split("･･･[続きを読む]")[0].strip()
                 body_text, img_url = fetch_article_detail(full_url)
-
                 items.append({
                     "title": f"[朝日] {cleaned_title}",
                     "link": full_url,
@@ -115,7 +115,6 @@ def parse_mainichi():
     if not soup:
         return items
 
-    # JSON-LDから社説構造を精密抽出
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             data = json.loads(script.string or "{}")
@@ -146,7 +145,6 @@ def parse_mainichi():
         except Exception as e:
             logging.warning(f"Error parsing Mainichi JSON-LD: {e}")
 
-    # JSON-LDで取得できない場合の精密HTMLフォールバック
     if not items:
         for a in soup.find_all("a", href=True):
             href = a["href"]
@@ -210,16 +208,24 @@ def main():
         try:
             parsed = parse_feed(FEED_FILE)
             for entry in parsed.entries:
+                dt = None
+                if entry.get("published"):
+                    try:
+                        dt = parse_date(entry.published)
+                    except Exception:
+                        dt = datetime.now(timezone.utc)
+                else:
+                    dt = datetime.now(timezone.utc)
+
                 existing_items.append({
                     "title": entry.title,
                     "link": entry.link,
                     "description": entry.get("summary", ""),
-                    "pub_date": entry.get("published", "")
+                    "pub_date": dt
                 })
         except Exception as e:
             logging.warning(f"Failed to parse existing RSS file: {e}")
 
-    # 新規取得項目を上にして重複を排除
     combined_items = []
     seen_links = set()
 
@@ -237,7 +243,7 @@ def main():
 
     fg = FeedGenerator()
     fg.title("全国4紙 社説統合RSS")
-    fg.link(href="https://github.com/", rel="alternate")
+    fg.link(href="https://github.com/towoyuki/shasetsu-rss", rel="alternate")
     fg.description("朝日新聞・読売新聞・毎日新聞・日本経済新聞の社説見出しフィード")
     fg.language("ja")
 
@@ -245,9 +251,18 @@ def main():
         fe = fg.add_entry()
         fe.title(item["title"])
         fe.link(href=item["link"])
+        fe.guid(item["link"], isPermaLink=True)
         
+        pub_dt = item.get("pub_date")
+        if isinstance(pub_dt, datetime):
+            if pub_dt.tzinfo is None:
+                pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+            fe.pubDate(pub_dt)
+        else:
+            fe.pubDate(datetime.now(timezone.utc))
+
         desc = item["description"]
-        if item.get("image"):
+        if item.get("image") and item["image"] not in desc:
             desc = f'<img src="{item["image"]}" style="max-width:100%;"><br><br>' + desc
         fe.description(desc)
 
