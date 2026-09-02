@@ -2,8 +2,10 @@ name: Editorial RSS Crawler
 
 on:
   schedule:
-    # 毎朝7:00 JST (UTC 22:00) に自動実行
-    - cron: '0 22 * * *'
+    # JST 5:30, 7:30 (前日 20:30, 22:30 UTC)
+    - cron: '30 20,22 * * *'
+    # JST 9:30, 11:30, 13:30, 15:30 (当日 0:30, 2:30, 4:30, 6:30 UTC)
+    - cron: '30 0,2,4,6 * * *'
   workflow_dispatch: # 手動実行用ボタン
 
 permissions:
