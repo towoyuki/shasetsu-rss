@@ -251,7 +251,8 @@ def main():
         fe = fg.add_entry()
         fe.title(item["title"])
         fe.link(href=item["link"])
-        fe.guid(item["link"], isPermaLink=True)
+        fe.id(item["link"])
+
         
         pub_dt = item.get("pub_date")
         if isinstance(pub_dt, datetime):
