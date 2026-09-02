@@ -20,8 +20,8 @@ HEADERS = {
 }
 
 FEED_FILE = "feed.xml"
-TEST_FEED_FILE = "feed-test.xml"
 MAX_ITEMS = 200
+
 
 def fetch_html(url):
     try:
@@ -268,9 +268,9 @@ def main():
             desc = f'<img src="{item["image"]}" style="max-width:100%;"><br><br>' + desc
         fe.description(desc)
 
-    for feed_file in (FEED_FILE, TEST_FEED_FILE):
-        fg.rss_file(feed_file, pretty=True)
-        logging.info(f"Successfully updated {feed_file} with {len(combined_items)} total entries.")
+    fg.rss_file(FEED_FILE, pretty=True)
+    logging.info(f"Successfully updated {FEED_FILE} with {len(combined_items)} total entries.")
+
 
 if __name__ == "__main__":
     main()
